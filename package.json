@@ -1,9 +1,9 @@
 {
   "name": "@anvilapp/react-native-bottom-sheet",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "react native bottom sheet",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "main": "index.js",
+  "types": "index.d.ts",
   "author": "yura.pustylnikov@gmail.com",
   "license": "MIT",
   "homepage": "https://github.com/pustylnikov/react-native-bottom-sheet",
@@ -18,9 +18,9 @@
     "test": "jest",
     "lint": "eslint . --ext .js,.jsx,.ts,.tsx",
     "lint-fix": "eslint . --ext .js,.jsx,.ts,.tsx --fix",
-    "build": "yarn run lint && rm -rf ./dist && tsc --project tsconfig.app.json",
-    "release-dry": "yarn run build && npm publish --access public --dry-run",
-    "release": "yarn run build && npm publish --access public",
+    "build": "yarn run lint && rm -rf ./dist && tsc --project tsconfig.app.json && cp ./{README.md,package.json} ./dist",
+    "release-dry": "yarn run build && cd ./dist && npm publish --access public --dry-run",
+    "release": "yarn run build && cd ./dist && npm publish --access public",
     "pod-install": "cd ios && pod install",
     "reinstall-modules": "rm -rf node_modules && yarn",
     "reset-cache": "yarn start --reset-cache",
@@ -67,8 +67,5 @@
     "hooks": {
       "pre-commit": "yarn run lint"
     }
-  },
-  "files": [
-    "dist/*"
-  ]
+  }
 }

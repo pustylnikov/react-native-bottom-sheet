@@ -23,9 +23,11 @@ export enum PositionTypes {
     TOP = 'top',
 }
 
+export type BottomSheetProperties = Partial<Omit<BottomSheetProps, 'propsAreEqual'>> & {
+    render: () => ReactNode
+}
+
 export type BottomSheetProps = {
-    visible: boolean
-    children: ReactNode
     overlayColor: string
     showOverlayDuration: number
     showContentDuration: number
@@ -36,6 +38,7 @@ export type BottomSheetProps = {
     dragClosingDuration: number
     dragTopOnly: boolean
     visibleDragIcon: boolean
+    draggable: boolean
     position: PositionTypes
     showComposingType: ComposingTypes
     hideComposingType: ComposingTypes
@@ -48,9 +51,14 @@ export type BottomSheetProps = {
     onDragDown?: () => void
     dragIconStyle?: ViewStyle
     contentContainerStyle?: ViewStyle
+    propsAreEqual?: (prevProps: Readonly<BottomSheetProps>, nextProps: Readonly<BottomSheetProps>) => boolean
 }
 
-type State = {
+type PreparedProperties = Omit<BottomSheetProps, 'propsAreEqual'> & {
+    render: () => ReactNode
+}
+
+type BottomSheetState = {
     visible: boolean
     closing: boolean
     height: number
@@ -58,10 +66,9 @@ type State = {
 
 const {height: windowHeight} = Dimensions.get('window');
 
-export default class BottomSheet extends Component<BottomSheetProps, State> {
+export default class BottomSheet extends Component<BottomSheetProps, BottomSheetState> {
 
     static defaultProps = {
-        visible: false,
         overlayColor: 'rgba(0, 0, 0, 0.3)',
         showOverlayDuration: 150,
         hideOverlayDuration: 150,
@@ -77,6 +84,7 @@ export default class BottomSheet extends Component<BottomSheetProps, State> {
         hideComposingType: ComposingTypes.PARALLEL,
         easingIn: Easing.ease,
         easingOut: Easing.ease,
+        draggable: true,
     };
 
     /**
@@ -84,7 +92,7 @@ export default class BottomSheet extends Component<BottomSheetProps, State> {
      * @type {object}
      */
     state = {
-        visible: this.props.visible,
+        visible: false,
         closing: false,
         height: windowHeight,
     };
@@ -93,72 +101,295 @@ export default class BottomSheet extends Component<BottomSheetProps, State> {
      *
      * @type {Animated.AnimatedValue}
      */
-    overlayAnimation: Animated.AnimatedValue = new Animated.Value(+this.props.visible);
+    protected overlayAnimation: Animated.AnimatedValue = new Animated.Value(0);
 
     /**
      *
      * @type {Animated.AnimatedValue}
      */
-    contentAnimation: Animated.AnimatedValue = new Animated.Value(+this.props.visible);
+    protected contentAnimation: Animated.AnimatedValue = new Animated.Value(0);
 
     /**
      * Drag animation
      */
-    translateY = new Animated.Value(+this.props.visible);
+    protected translateY = new Animated.Value(0);
 
     /**
      *
      * @type {Boolean}
      */
-    isOpen: boolean = this.props.visible;
+    protected isOpen: boolean = false;
 
     /**
      * Defines to allow height changing
      */
-    allowUpdateHeight: boolean = false;
+    protected allowUpdateHeight: boolean = false;
 
     /**
      *
      * @type {boolean}
      */
-    mount: boolean = false;
+    protected mount: boolean = false;
+
+    /**
+     * Sheet properties
+     */
+    protected properties?: PreparedProperties;
+
+    /**
+     * Open promise resolver
+     */
+    protected openResolver?: (finished: boolean) => void;
 
     /**
      * Drag responder
      */
-    panResponder: PanResponderInstance | null = this.props.onDragDown
-        ? PanResponder.create({
-            onStartShouldSetPanResponder: () => true,
-            onMoveShouldSetPanResponder: () => false,
-            onPanResponderGrant: () => {
-            },
-            onPanResponderMove: Animated.event(
-                [
-                    null, {dy: this.translateY},
-                ],
-                {useNativeDriver: false}
-            ),
-            onPanResponderRelease: (e, gesture) => {
-                const direction = gesture.dy > 0 ? PositionTypes.BOTTOM : PositionTypes.TOP;
-                const absDy = Math.abs(gesture.dy);
-                const absVy = Math.abs(gesture.vy);
-                const {dragClosingDuration, dragClosingHeight, dragClosingVelocity, position} = this.props;
-                if (direction === position) {
-                    if (
-                        this.props.onDragDown
-                        && (absVy >= dragClosingVelocity || absDy >= dragClosingHeight * this.state.height)
-                    ) {
-                        this.props.onDragDown();
-                    } else {
-                        Animated.timing(this.translateY, {
-                            toValue: 0,
-                            duration: dragClosingDuration,
-                            useNativeDriver: false,
-                        }).start();
-                    }
+    protected panResponder: PanResponderInstance = PanResponder.create({
+        onStartShouldSetPanResponder: () => false,
+        onMoveShouldSetPanResponder: () => {
+            return !!(this.properties && this.properties.draggable);
+        },
+        onPanResponderMove: Animated.event(
+            [
+                null, {dy: this.translateY},
+            ],
+            {useNativeDriver: false}
+        ),
+        onPanResponderRelease: (e, gesture) => {
+            if (!this.properties) {
+                return;
+            }
+            const direction = gesture.dy > 0 ? PositionTypes.BOTTOM : PositionTypes.TOP;
+            const absDy = Math.abs(gesture.dy);
+            const absVy = Math.abs(gesture.vy);
+            const {dragClosingDuration, dragClosingHeight, dragClosingVelocity, position, onDragDown} = this.properties;
+            if (direction === position) {
+                if (
+                    onDragDown
+                    && (absVy >= dragClosingVelocity || absDy >= dragClosingHeight * this.state.height)
+                ) {
+                    onDragDown();
+                } else {
+                    Animated.timing(this.translateY, {
+                        toValue: 0,
+                        duration: dragClosingDuration,
+                        useNativeDriver: false,
+                    }).start();
                 }
-            },
-        }) : null;
+            }
+        },
+    });
+
+    /**
+     *
+     * @constructor
+     */
+    DraggableIcon = () => {
+        if (!this.properties) {
+            return null;
+        }
+
+        const {dragIconStyle, dragTopOnly} = this.properties;
+
+        return (
+            <View
+                {...(dragTopOnly && this.panResponder ? this.panResponder.panHandlers : null)}
+                style={styles.draggableView}
+                hitSlop={{top: 20, bottom: 20, left: 0, right: 0}}
+            >
+                <View style={[styles.draggableIcon, dragIconStyle]}/>
+            </View>
+        );
+    }
+
+    /**
+     *  Returns animation styles
+     */
+    protected getAnimationStyles = (position: PositionTypes, height: number) => {
+        switch (position) {
+            case PositionTypes.TOP:
+                return {
+                    top: this.contentAnimation.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [-height, 0],
+                    }),
+                };
+            case PositionTypes.BOTTOM:
+                return {
+                    bottom: this.contentAnimation.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [-height, 0],
+                    }),
+                };
+        }
+    };
+
+    /**
+     * Open modal
+     */
+    public open = (properties: BottomSheetProperties): Promise<boolean> => {
+        return new Promise(async (resolve) => {
+            if (this.isOpen) {
+                await this.close();
+            }
+            this.translateY.setValue(0);
+            this.isOpen = true;
+
+            this.properties = {
+                ...this.props,
+                ...properties,
+            };
+
+            await this.stopAnimations();
+            this.subscribeAndroidBackButton();
+            this.allowUpdateHeight = true;
+            await this.setState({visible: true, closing: false});
+            this.openResolver = (finished) => resolve(finished);
+        });
+    };
+
+    /**
+     * Start opening animation
+     */
+    protected runOpeningAnimation = () => {
+        if (!this.properties) {
+            return;
+        }
+
+        this.allowUpdateHeight = false;
+        const animations = [
+            Animated.timing(this.contentAnimation, {
+                toValue: 1,
+                duration: this.properties.showContentDuration,
+                easing: this.properties.easingIn,
+                useNativeDriver: false,
+            }),
+        ];
+
+        if (this.properties.overlayColor !== 'transparent') {
+            animations.unshift(
+                Animated.timing(this.overlayAnimation, {
+                    toValue: 1,
+                    duration: this.properties.showOverlayDuration,
+                    useNativeDriver: false,
+                }),
+            );
+        }
+
+        Animated[this.properties.showComposingType](animations).start(({finished}) => {
+            if (finished) {
+                this.properties?.onOpen && this.properties.onOpen();
+            }
+            this.openResolver && this.openResolver(finished);
+            this.openResolver = undefined;
+        });
+    };
+
+    /**
+     * Close modal
+     */
+    public close = (): Promise<boolean> => {
+        return new Promise(async (resolve) => {
+            await this.setState({closing: true});
+            await this.stopAnimations();
+            this.unsubscribeAndroidBackButton();
+
+            if (!this.properties) {
+                return resolve(false);
+            }
+
+            const animations = [
+                Animated.timing(this.contentAnimation, {
+                    toValue: 0,
+                    duration: this.properties.hideContentDuration,
+                    easing: this.properties.easingOut,
+                    useNativeDriver: false,
+                }),
+            ];
+
+            if (this.properties.overlayColor !== 'transparent') {
+                animations.push(
+                    Animated.timing(this.overlayAnimation, {
+                        toValue: 0,
+                        duration: this.properties.hideOverlayDuration,
+                        useNativeDriver: false,
+                    }),
+                );
+            }
+
+            Animated[this.properties.hideComposingType](animations).start(async ({finished}) => {
+                if (finished) {
+                    await this.setState({
+                        visible: false,
+                        closing: false,
+                    });
+                    this.properties?.onClose && this.properties.onClose();
+                }
+                this.isOpen = false;
+                this.properties = undefined;
+                resolve(finished);
+                this.translateY.setValue(0);
+            });
+        });
+    };
+
+    /**
+     * Android back handler
+     *
+     * @returns {boolean}
+     */
+    protected backHandler = () => {
+        if (this.isOpen) {
+            this.properties?.onBackButtonPress && this.properties.onBackButtonPress();
+            return true;
+        }
+        return false;
+    };
+
+    /**
+     *  Stop animations
+     *
+     * @returns {Promise<void>}
+     */
+    protected stopAnimations = async (): Promise<void> => {
+        await Promise.all([
+            new Promise((resolve) => this.overlayAnimation.stopAnimation(resolve)),
+            new Promise((resolve) => this.contentAnimation.stopAnimation(resolve)),
+        ]);
+    };
+
+    /**
+     * Unsubscribe the android back button handler
+     */
+    protected unsubscribeAndroidBackButton = () => {
+        if (Platform.OS === 'android') {
+            BackHandler.removeEventListener('hardwareBackPress', this.backHandler);
+        }
+    };
+
+    /**
+     * Subscribe the android back button handler
+     */
+    protected subscribeAndroidBackButton = () => {
+        if (Platform.OS === 'android') {
+            BackHandler.removeEventListener('hardwareBackPress', this.backHandler);
+            BackHandler.addEventListener('hardwareBackPress', this.backHandler);
+        }
+    };
+
+    /**
+     * @override
+     * @param state
+     */
+    public setState = <K extends keyof BottomSheetState>(state: Pick<BottomSheetState, K>): Promise<void> => {
+        return new Promise((resolve) => {
+            if (this.mount) {
+                super.setState(state, resolve);
+            } else {
+                resolve();
+            }
+        });
+    };
 
     /**
      * Mount
@@ -182,14 +413,15 @@ export default class BottomSheet extends Component<BottomSheetProps, State> {
      * @param {object} nextState
      * @returns {boolean}
      */
-    shouldComponentUpdate(nextProps: BottomSheetProps, nextState: State) {
-        if (this.props.visible !== nextProps.visible) {
-            nextProps.visible ? this.open() : this.close();
-            return false;
-        }
-        return this.state.visible !== nextState.visible
-            || this.state.closing !== nextState.closing
-            || this.state.height !== nextState.height;
+    shouldComponentUpdate(nextProps: BottomSheetProps, nextState: BottomSheetState) {
+        const {propsAreEqual} = this.props;
+        const {visible, height, closing} = this.state;
+        return !(
+            visible === nextState.visible
+            && height === nextState.height
+            && closing === nextState.closing
+            && (propsAreEqual ? propsAreEqual(this.props, nextProps) : true)
+        );
     }
 
     /**
@@ -200,19 +432,19 @@ export default class BottomSheet extends Component<BottomSheetProps, State> {
     render() {
         const {visible, closing, height} = this.state;
 
-        if (!visible) {
+        if (!visible || !this.properties) {
             return null;
         }
 
         const {
             overlayColor,
             onOverlayPress,
-            children,
+            render,
             position,
             dragTopOnly,
             visibleDragIcon,
             contentContainerStyle,
-        } = this.props;
+        } = this.properties;
 
         const animationStyles = this.getAnimationStyles(position, height);
 
@@ -262,9 +494,7 @@ export default class BottomSheet extends Component<BottomSheetProps, State> {
                                 this.allowUpdateHeight = false;
                                 const roundedHeight = Math.round(layoutHeight);
                                 if (roundedHeight !== height) {
-                                    this.setState({
-                                        height: roundedHeight,
-                                    }, this.runOpeningAnimation);
+                                    this.setState({height: roundedHeight}).then(this.runOpeningAnimation);
                                 } else {
                                     this.runOpeningAnimation();
                                 }
@@ -276,7 +506,7 @@ export default class BottomSheet extends Component<BottomSheetProps, State> {
                                 <this.DraggableIcon/>
                             ) : null
                         }
-                        {children}
+                        {render()}
                         {
                             visibleDragIcon && position === PositionTypes.TOP ? (
                                 <this.DraggableIcon/>
@@ -287,195 +517,6 @@ export default class BottomSheet extends Component<BottomSheetProps, State> {
             </View>
         );
     }
-
-    /**
-     *
-     * @constructor
-     */
-    DraggableIcon = () => {
-        const {dragIconStyle, dragTopOnly} = this.props;
-
-        return (
-            <View
-                {...(dragTopOnly && this.panResponder ? this.panResponder.panHandlers : null)}
-                style={styles.draggableView}
-                hitSlop={{top: 20, bottom: 20, left: 0, right: 0}}
-            >
-                <View style={[styles.draggableIcon, dragIconStyle]}/>
-            </View>
-        );
-    }
-
-    /**
-     *  Returns animation styles
-     */
-    getAnimationStyles = (position: PositionTypes, height: number) => {
-        switch (position) {
-            case PositionTypes.TOP:
-                return {
-                    top: this.contentAnimation.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [-height, 0],
-                    }),
-                };
-            case PositionTypes.BOTTOM:
-                return {
-                    bottom: this.contentAnimation.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [-height, 0],
-                    }),
-                };
-        }
-    };
-
-    /**
-     * Open modal
-     */
-    open = async () => {
-        this.isOpen = true;
-
-        await this.stopAnimations();
-
-        this.subscribeAndroidBackButton();
-
-        this.allowUpdateHeight = true;
-
-        this.setState({
-            visible: true,
-            closing: false,
-        });
-    };
-
-    runOpeningAnimation = () => {
-        this.allowUpdateHeight = false;
-        const animations = [
-            Animated.timing(this.contentAnimation, {
-                toValue: 1,
-                duration: this.props.showContentDuration,
-                easing: this.props.easingIn,
-                useNativeDriver: false,
-            }),
-        ];
-
-        if (this.props.overlayColor !== 'transparent') {
-            animations.unshift(
-                Animated.timing(this.overlayAnimation, {
-                    toValue: 1,
-                    duration: this.props.showOverlayDuration,
-                    useNativeDriver: false,
-                }),
-            );
-        }
-
-        Animated[this.props.showComposingType](animations).start(({finished}) => {
-            if (finished) {
-                this.props.onOpen && this.props.onOpen();
-            }
-        });
-    };
-
-    /**
-     * Close modal
-     */
-    close = () => {
-
-        this.isOpen = false;
-
-        this.setState({
-            closing: true,
-        }, () => {
-            this.stopAnimations().then(() => {
-
-                this.unsubscribeAndroidBackButton();
-
-                const animations = [
-                    Animated.timing(this.contentAnimation, {
-                        toValue: 0,
-                        duration: this.props.hideContentDuration,
-                        easing: this.props.easingOut,
-                        useNativeDriver: false,
-                    }),
-                ];
-
-                if (this.props.overlayColor !== 'transparent') {
-                    animations.push(
-                        Animated.timing(this.overlayAnimation, {
-                            toValue: 0,
-                            duration: this.props.hideOverlayDuration,
-                            useNativeDriver: false,
-                        }),
-                    );
-                }
-
-                Animated[this.props.hideComposingType](animations).start(({finished}) => {
-                    if (finished) {
-                        this.setState({
-                            visible: false,
-                            closing: false,
-                        }, () => {
-                            this.translateY.setValue(0);
-                            this.props.onClose && this.props.onClose();
-                        });
-                    }
-                });
-            });
-        });
-    };
-
-    /**
-     * Android back handler
-     *
-     * @returns {boolean}
-     */
-    backHandler = () => {
-        if (this.isOpen) {
-            this.props.onBackButtonPress && this.props.onBackButtonPress();
-            return true;
-        }
-        return false;
-    };
-
-    /**
-     *  Stop animations
-     *
-     * @returns {Promise<void>}
-     */
-    stopAnimations = async (): Promise<void> => {
-        await Promise.all([
-            new Promise((resolve) => this.overlayAnimation.stopAnimation(resolve)),
-            new Promise((resolve) => this.contentAnimation.stopAnimation(resolve)),
-        ]);
-    };
-
-    /**
-     * Unsubscribe the android back button handler
-     */
-    unsubscribeAndroidBackButton = () => {
-        if (Platform.OS === 'android') {
-            BackHandler.removeEventListener('hardwareBackPress', this.backHandler);
-        }
-    };
-
-    /**
-     * Subscribe the android back button handler
-     */
-    subscribeAndroidBackButton = () => {
-        if (Platform.OS === 'android') {
-            BackHandler.removeEventListener('hardwareBackPress', this.backHandler);
-            BackHandler.addEventListener('hardwareBackPress', this.backHandler);
-        }
-    };
-
-    /**
-     * @override
-     * @param state
-     * @param callback
-     */
-    setState = <K extends keyof State>(state: Pick<State, K>, callback?: () => any) => {
-        if (this.mount) {
-            super.setState(state, callback);
-        }
-    };
 }
 
 const styles = StyleSheet.create({

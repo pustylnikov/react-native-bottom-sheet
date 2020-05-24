@@ -1,23 +1,50 @@
-import React, {useState} from 'react';
+import React from 'react';
 import {Button, SafeAreaView, StatusBar, StyleSheet, Text, View} from 'react-native';
 
 import BottomSheet, {ComposingTypes, PositionTypes} from '../src';
+import {closeBottomSheet, openBottomSheet, setBottomSheetRef} from '../src/helper';
+
+const BottomSheetContent = () => (
+    <View style={styles.contentView}>
+        <View style={styles.titleView}>
+            <Text style={styles.titleText}>Fusce ligula metus</Text>
+            <Text style={styles.subTitleText}>
+                Sed ullamcorper elit in nisi pellentesque, quis sagittis urna interdum
+            </Text>
+        </View>
+    </View>
+);
 
 const App = () => {
-
-    const [visible, setVisible] = useState(false);
-
     return (
         <>
             <StatusBar barStyle="dark-content"/>
-            <SafeAreaView>
-                <Button
-                    title="Show Bottom Sheet"
-                    onPress={() => setVisible(true)}
-                />
+
+            <SafeAreaView style={styles.containerView}>
+                <View style={styles.buttonView}>
+                    <Button
+                        title="Show Bottom Sheet"
+                        onPress={() => {
+                            openBottomSheet({
+                                render: () => <BottomSheetContent/>,
+                            });
+                        }}
+                    />
+                </View>
+                <View style={styles.buttonView}>
+                    <Button
+                        title="Show No Draggable Bottom Sheet"
+                        onPress={() => openBottomSheet({
+                            render: () => <BottomSheetContent/>,
+                            draggable: false,
+                            visibleDragIcon: false,
+                        })}
+                    />
+                </View>
             </SafeAreaView>
+
             <BottomSheet
-                visible={visible}
+                ref={setBottomSheetRef}
                 showComposingType={ComposingTypes.PARALLEL}
                 hideComposingType={ComposingTypes.PARALLEL}
                 position={PositionTypes.BOTTOM}
@@ -27,24 +54,24 @@ const App = () => {
                 hideContentDuration={150}
                 dragTopOnly={true}
                 visibleDragIcon={true}
-                onBackButtonPress={() => setVisible(false)}
-                onOverlayPress={() => setVisible(false)}
-                onDragDown={() => setVisible(false)}
-            >
-                <View style={styles.contentView}>
-                    <View style={styles.titleView}>
-                        <Text style={styles.titleText}>Fusce ligula metus</Text>
-                        <Text style={styles.subTitleText}>
-                            Sed ullamcorper elit in nisi pellentesque, quis sagittis urna interdum
-                        </Text>
-                    </View>
-                </View>
-            </BottomSheet>
+                draggable
+                onBackButtonPress={() => closeBottomSheet()}
+                onOverlayPress={() => closeBottomSheet()}
+                onDragDown={() => closeBottomSheet()}
+            />
         </>
     );
 };
 
 const styles = StyleSheet.create({
+    containerView: {
+        flex: 1,
+        justifyContent: 'center',
+        paddingHorizontal: 30,
+    },
+    buttonView: {
+        marginVertical: 10,
+    },
     contentView: {
         height: 300,
     },
@@ -61,14 +88,6 @@ const styles = StyleSheet.create({
         fontSize: 12,
         color: '#222',
         textAlign: 'center',
-    },
-    draggableIcon: {
-        width: 35,
-        height: 5,
-        borderRadius: 5,
-        marginVertical: 10,
-        backgroundColor: '#ccc',
-        alignSelf: 'center',
     },
 });
 

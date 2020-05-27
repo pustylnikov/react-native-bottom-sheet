@@ -1,6 +1,6 @@
 {
   "name": "@anvilapp/react-native-bottom-sheet",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "react native bottom sheet",
   "main": "index.js",
   "types": "index.d.ts",

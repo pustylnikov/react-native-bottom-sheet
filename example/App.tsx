@@ -15,6 +15,17 @@ const BottomSheetContent = () => (
     </View>
 );
 
+const BottomSheetBigContent = () => (
+    <View style={styles.contentBigView}>
+        <View style={styles.titleView}>
+            <Text style={styles.titleText}>Fusce ligula metus</Text>
+            <Text style={styles.subTitleText}>
+                Sed ullamcorper elit in nisi pellentesque, quis sagittis urna interdum
+            </Text>
+        </View>
+    </View>
+);
+
 const App = () => {
     return (
         <>
@@ -35,7 +46,7 @@ const App = () => {
                     <Button
                         title="Show No Draggable Bottom Sheet"
                         onPress={() => openBottomSheet({
-                            render: () => <BottomSheetContent/>,
+                            render: () => <BottomSheetBigContent/>,
                             draggable: false,
                             visibleDragIcon: false,
                         })}
@@ -74,6 +85,9 @@ const styles = StyleSheet.create({
     },
     contentView: {
         height: 300,
+    },
+    contentBigView: {
+        height: 500,
     },
     titleView: {
         paddingHorizontal: 40,

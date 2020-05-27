@@ -243,7 +243,11 @@ export default class BottomSheet extends Component<BottomSheetProps, BottomSheet
             await this.stopAnimations();
             this.subscribeAndroidBackButton();
             this.allowUpdateHeight = true;
-            await this.setState({visible: true, closing: false});
+            await this.setState({
+                visible: true,
+                closing: false,
+                height: windowHeight,
+            });
             this.openResolver = (finished) => resolve(finished);
         });
     };
@@ -322,6 +326,7 @@ export default class BottomSheet extends Component<BottomSheetProps, BottomSheet
                     await this.setState({
                         visible: false,
                         closing: false,
+                        height: windowHeight,
                     });
                     this.properties?.onClose && this.properties.onClose();
                 }
